@@ -1,0 +1,78 @@
+name: rcgm
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rcgm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rcgm_dev_password_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-rcgm}
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rcgm} -d ${POSTGRES_DB:-rcgm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [rcgm_net]
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rcgm}:${POSTGRES_PASSWORD:-rcgm_dev_password_change_me}@postgres:5432/${POSTGRES_DB:-rcgm}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+      SECRET_KEY: ${SECRET_KEY:-change_me_dev_only_insecure_secret_key}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-rcgm_session}
+      SESSION_TTL_MINUTES: ${SESSION_TTL_MINUTES:-480}
+      SESSION_ABSOLUTE_TTL_HOURS: ${SESSION_ABSOLUTE_TTL_HOURS:-24}
+      LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-5}
+      LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      UPLOAD_STORAGE_DIR: /app/storage/uploads
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-10}
+      SEED_TENANT_CODE: ${SEED_TENANT_CODE:-JDL}
+      SEED_TENANT_NAME: ${SEED_TENANT_NAME:-Jims Diamond Lounge}
+      SEED_DEMO_PASSWORD_SUFFIX: ${SEED_DEMO_PASSWORD_SUFFIX:-123}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - uploads:/app/storage/uploads
+    networks: [rcgm_net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-RCGM}
+      API_BASE_URL: http://api:8000
+      NODE_ENV: ${ENVIRONMENT:-development}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    networks: [rcgm_net]
+
+networks:
+  rcgm_net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  uploads:
