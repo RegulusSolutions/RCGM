@@ -37,8 +37,8 @@ READ_ROLES = (UserRole.TENANT_ADMIN, UserRole.COORDINATOR)
 WRITE_ROLES = (UserRole.TENANT_ADMIN,)
 
 CATALOGS: dict[str, dict[str, Any]] = {
-    "hotels": {"model": Hotel, "fields": ["name", "location", "room_types"], "required": ["name"], "label": "Hotels"},
-    "airlines": {"model": Airline, "fields": ["name", "travel_classes"], "required": ["name"], "label": "Airlines"},
+    "hotels": {"model": Hotel, "fields": ["name", "location", "room_types"], "required": ["name"], "label": "Hotels", "list_fields": ["room_types"]},
+    "airlines": {"model": Airline, "fields": ["name", "travel_classes"], "required": ["name"], "label": "Airlines", "list_fields": ["travel_classes"]},
     "drivers": {"model": Driver, "fields": ["name", "mobile"], "required": ["name"], "label": "Drivers"},
     "vehicles": {"model": Vehicle, "fields": ["vehicle_no", "vehicle_type", "capacity", "driver_id"], "required": ["vehicle_no", "vehicle_type"], "label": "In-house Fleet"},
     "vendors": {"model": TransportVendor, "fields": ["name", "contact", "vehicle_types_offered"], "required": ["name"], "label": "Transport Vendors"},
@@ -47,6 +47,20 @@ CATALOGS: dict[str, dict[str, Any]] = {
     "currencies": {"model": Currency, "fields": ["code", "name", "is_base"], "required": ["code"], "label": "Currencies"},
     "visa-fees": {"model": VisaFeeGuide, "fields": ["nationality_group", "fee_usd", "notes"], "required": ["nationality_group", "fee_usd"], "label": "Visa Fee Guide"},
 }
+
+
+def _normalize_value(field: str, value: Any, cfg: dict) -> Any:
+    """Postgres ARRAY(String) columns (room_types, travel_classes) must never
+    receive a raw Python str — psycopg adapts a str as a sequence of its
+    individual characters, not as a single-element list, silently corrupting
+    the data into one row per character. Always coerce to a proper list."""
+    if field in cfg.get("list_fields", ()):
+        if isinstance(value, str):
+            return [v.strip() for v in value.split(",") if v.strip()]
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        return []
+    return value
 
 
 def _serialize(obj, fields: list[str]) -> dict:
@@ -90,7 +104,7 @@ def create_catalog_item(
     missing = [f for f in cfg["required"] if not payload.get(f) and payload.get(f) != 0]
     if missing:
         raise bad_request(f"Required: {', '.join(missing)}")
-    kwargs = {f: payload.get(f) for f in cfg["fields"]}
+    kwargs = {f: _normalize_value(f, payload.get(f), cfg) for f in cfg["fields"]}
     if catalog == "currencies":
         kwargs["code"] = str(kwargs["code"]).upper()
     obj = cfg["model"](tenant_id=tenant_id, is_active=True, **kwargs)
@@ -122,9 +136,11 @@ def update_catalog_item(
         raise not_found("Entry not found.")
     changes = []
     for f in cfg["fields"]:
-        if f in payload and payload[f] != getattr(obj, f):
-            changes.append(f"{f}: {getattr(obj, f)!r} -> {payload[f]!r}")
-            setattr(obj, f, payload[f])
+        if f in payload:
+            new_val = _normalize_value(f, payload[f], cfg)
+            if new_val != getattr(obj, f):
+                changes.append(f"{f}: {getattr(obj, f)!r} -> {new_val!r}")
+                setattr(obj, f, new_val)
     db.commit()
     if changes:
         record_event(

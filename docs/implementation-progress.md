@@ -111,8 +111,32 @@ migrated, seeded and smoke-tested end-to-end via `docker compose`. Frontend
 
 ## Known issues / open items
 
-- **Frontend (`apps/web`) has not been started.** This is the single largest remaining body of work.
 - **No automated test suite yet** (`pytest` for backend, smoke tests for frontend) — manual verification only so far.
 - File upload/download (`/api/files`) has not yet been exercised end-to-end with a real multipart request in this pass (code-reviewed, not runtime-tested).
-- `apps/web/Dockerfile` referenced by `docker-compose.yml` does not exist yet, so `docker compose up --build` (all services) will currently fail on the `web` service until the frontend is scaffolded. `docker compose up --build postgres api` works today.
-- Reports and CSV exports have been code-reviewed against live models but not yet individually smoke-tested one-by-one in this pass.
+- Reports/CSV exports were smoke-tested for `active-trips` this pass (see below); the remaining 9 report endpoints are code-reviewed against live models but not yet individually exercised one-by-one.
+- Local ports were moved off the stack defaults (`WEB_PORT=3011`, `API_PORT=8010`, all bound to `127.0.0.1`) because this host already runs other services on `3000`/`8000` — see `.env`. Not a code issue, just a host-specific override.
+- `rcgm.reguluscompliance.com` does not resolve yet (no DNS record) — deployment is intentionally deferred until DNS is added; see `docs/deployment-notes.md`.
+
+## 2026-07-30 — Frontend build-out pass: Master Data, Settings & Flag Windows, Users & Permissions, Audit Log, Diagnostics, Reports
+
+The prior note above ("Frontend has not been started") was stale — by this session `apps/web` already had the app shell, auth, role-aware dashboards, trip detail tabs, and the guest-arrival wizard implemented, but six top-level pages were still literal `<ComingSoon />` placeholders with no tables, search, or add actions: Master Data, Settings & Flag Windows, Users & Permissions, Audit Log, Diagnostics, Reports. This pass replaced all six with fully working, backend-wired UIs, added the two backend endpoints that were missing to support them, and created `apps/web/Dockerfile` so `docker compose up --build` now brings up all three services (previously only `postgres`+`api` worked).
+
+| Item | Status | Notes |
+|---|---|---|
+| `apps/web/Dockerfile` (multi-stage, Next.js `standalone` output) | **Implemented & Tested** | Added `output: "standalone"` to `next.config.ts`; full `docker compose up --build` now starts postgres+api+web together |
+| Master Data page (`master-data/page.tsx`) | **Implemented & Tested** | 8 catalogue tabs (hotels, airlines, drivers, fleet, vendors, packages, agents, currencies, visa fee guide), client-side search, role-gated "+ Add" dialog per catalogue, soft deactivate/reactivate — verified against live seeded data + audit events |
+| Settings & Flag Windows page (`settings/page.tsx`) | **Implemented & Tested** | New `GET`/`PATCH /api/tenants/settings` backend endpoint added (previously only set on tenant creation, never editable); edits the 10 amber/red flag-window thresholds + guest-link expiry; PATCH verified to persist and emit a `SETTINGS_CHANGE` audit event |
+| Users & Permissions page (`users/page.tsx`) | **Implemented & Tested** | Table + search, "+ Add user" dialog (role select, optional linked marketing agent, Mark-Paid grant), deactivate/reactivate, Mark-Paid toggle — all wired to existing `/api/users` routes |
+| Audit Log page (`audit/page.tsx`) | **Implemented & Tested** | Tenant-scoped view with username/action/date filters + pagination against `/api/audit`; Super Admin instead sees the unfiltered platform feed via `/api/audit/platform` |
+| Diagnostics page (`diagnostics/page.tsx`) | **Implemented & Tested** | New `GET /api/tenants/diagnostics` backend endpoint added — live DB check, Alembic migration version (read from `alembic_version` table), file-storage write/read/delete check, tenant record counts. No destructive "reset" button, per the decision already recorded in `docs/feature-inventory.md` §23 — the documented seed command is referenced instead |
+| Reports page (`reports/page.tsx`) | **Implemented & Tested** | Report picker for all 10 backend reports, shared filters (date range, trip status, payment status, agent, group) applied per-report, dynamic results table, CSV export (verified `Content-Disposition` header + real row data), print button |
+
+**Verified this pass** (via `docker compose up --build`, real containers, real Postgres):
+1. All three containers (`postgres`, `api`, `web`) start clean; migrations + idempotent seed run automatically on `api` startup.
+2. `tsc --noEmit`, `next lint`, and `next build` all pass for the whole `apps/web` project (build already had 3 pre-existing lint warnings from the `react-hooks/set-state-in-effect` rule on files this pass didn't touch — the 6 new pages follow the same existing data-fetching convention used elsewhere in the app, e.g. `guests/new/page.tsx`).
+3. Logged in as Tenant Admin via API: `GET /api/master-data/hotels`, `GET/PATCH /api/tenants/settings`, `GET /api/tenants/diagnostics`, `GET /api/users`, `GET /api/audit`, `GET /api/reports/active-trips` all return real seeded data with `200`.
+4. `POST /api/master-data/hotels` and `PATCH /api/tenants/settings` each produced the expected audit event (`MASTER_ADD`, `SETTINGS_CHANGE`).
+5. `GET /api/reports/active-trips/csv` returned a real CSV with the correct `Content-Disposition` filename.
+6. Cross-role check: the same `PATCH /api/tenants/settings` call as Coordinator correctly returned `403 FORBIDDEN`.
+7. Logged in through the **Next.js proxy** (not directly against the API) to confirm the cookie round-trip and `/api/*` forwarding work end-to-end for a browser-equivalent client; fetched all 6 new page routes and confirmed `200` with no server-render error markers and no runtime errors in the `web` container logs.
+8. No real browser was available in this environment (Claude in Chrome extension not connected) — verification above covers build-time rendering, SSR, and live API wiring, but a manual click-through in an actual browser is still recommended before considering this pass fully closed.

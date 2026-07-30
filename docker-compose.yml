@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rcgm_dev_password_change_me}
       POSTGRES_DB: ${POSTGRES_DB:-rcgm}
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -44,7 +44,7 @@ services:
       SEED_TENANT_NAME: ${SEED_TENANT_NAME:-Jims Diamond Lounge}
       SEED_DEMO_PASSWORD_SUFFIX: ${SEED_DEMO_PASSWORD_SUFFIX:-123}
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8010}:8000"
     volumes:
       - uploads:/app/storage/uploads
     networks: [rcgm_net]
@@ -66,7 +66,7 @@ services:
       API_BASE_URL: http://api:8000
       NODE_ENV: ${ENVIRONMENT:-development}
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT:-3011}:3000"
     networks: [rcgm_net]
 
 networks:
