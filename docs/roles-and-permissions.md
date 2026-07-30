@@ -69,6 +69,10 @@ Notes carried over verbatim from the prototype's own enforcement functions:
 - `canSeeDocs(trip)`: `COORDINATOR`, `RESERVATIONS`, `TENANT_ADMIN` always; `MARKETING` only when
   the trip belongs to their own `agentId`. Transport/F&B/Manager never see documents.
 - Visa lane mutation is Coordinator-only even though Reservations can see the trip.
+- **Narrow exception**: `GET /api/master-data/packages` is additionally readable by `MARKETING`
+  (all other catalogs remain `–` for that role) — the guest arrival request wizard needs the
+  active package-code list to populate its "Package code" field. Discovered as an integration gap
+  once the frontend wizard was built against the already-implemented backend.
 - Manager and F&B/Host are enforced server-side as read-mostly: Manager's only write action is
   the package qualification flag; F&B/Host has no write actions at all.
 

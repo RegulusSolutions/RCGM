@@ -61,12 +61,17 @@ def _serialize(obj, fields: list[str]) -> dict:
 def list_catalog(
     catalog: str,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(*READ_ROLES)),
+    current_user: CurrentUser = Depends(require_role(*READ_ROLES, UserRole.MARKETING)),
     tenant_id: uuid.UUID = Depends(get_tenant_scope),
 ):
     cfg = CATALOGS.get(catalog)
     if not cfg:
         raise not_found("Unknown catalog.")
+    # Marketing has no general master-data access (see docs/roles-and-permissions.md) — the sole
+    # exception is "packages", needed to populate the package-code field on the guest arrival
+    # request wizard.
+    if current_user.role == UserRole.MARKETING and catalog != "packages":
+        raise forbidden("Marketing may only view package codes.")
     rows = db.query(cfg["model"]).filter(cfg["model"].tenant_id == tenant_id).order_by(cfg["model"].created_at).all()
     return [_serialize(r, cfg["fields"]) for r in rows]
 
