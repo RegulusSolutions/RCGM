@@ -14,6 +14,12 @@ import { ClearancePanel } from "@/components/trips/clearance-panel";
 import { NotesPanel } from "@/components/trips/notes-panel";
 import { HandoverPanel } from "@/components/trips/handover-panel";
 import { ChecklistPanel } from "@/components/trips/checklist-panel";
+import { BookingsPanel } from "@/components/trips/bookings-panel";
+import { VisaPanel } from "@/components/trips/visa-panel";
+import { TransportPanel } from "@/components/trips/transport-panel";
+
+const BOOKING_VISA_ROLES = new Set(["COORDINATOR", "RESERVATIONS", "TENANT_ADMIN", "MANAGER"]);
+const TRANSPORT_ROLES = new Set(["COORDINATOR", "TRANSPORT", "TENANT_ADMIN", "MANAGER"]);
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -31,6 +37,8 @@ export default function TripDetailPage() {
   const { data: trip, loading, error, reload } = useApi<TripDetail>(`/api/trips/${tripId}`);
 
   const canEdit = user?.role === "COORDINATOR";
+  const canSeeBookingsVisa = !!user?.role && BOOKING_VISA_ROLES.has(user.role);
+  const canSeeTransport = !!user?.role && TRANSPORT_ROLES.has(user.role);
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading trip…</div>;
   if (error || !trip) {
@@ -68,6 +76,9 @@ export default function TripDetailPage() {
           <TabsTrigger value="guest">Guest</TabsTrigger>
           <TabsTrigger value="companions">Companions ({trip.companions.length})</TabsTrigger>
           <TabsTrigger value="clearance">Clearance</TabsTrigger>
+          {canSeeBookingsVisa && <TabsTrigger value="bookings">Bookings</TabsTrigger>}
+          {canSeeBookingsVisa && <TabsTrigger value="visa">Visa</TabsTrigger>}
+          {canSeeTransport && <TabsTrigger value="transport">Transport</TabsTrigger>}
           <TabsTrigger value="checklist">Checklist</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
           <TabsTrigger value="handover">Handover</TabsTrigger>
@@ -154,6 +165,24 @@ export default function TripDetailPage() {
         <TabsContent value="clearance">
           <ClearancePanel trip={trip} canRecord={canEdit} onDone={reload} />
         </TabsContent>
+
+        {canSeeBookingsVisa && (
+          <TabsContent value="bookings">
+            <BookingsPanel trip={trip} />
+          </TabsContent>
+        )}
+
+        {canSeeBookingsVisa && (
+          <TabsContent value="visa">
+            <VisaPanel trip={trip} />
+          </TabsContent>
+        )}
+
+        {canSeeTransport && (
+          <TabsContent value="transport">
+            <TransportPanel trip={trip} />
+          </TabsContent>
+        )}
 
         <TabsContent value="checklist">
           <ChecklistPanel tripId={trip.id} checklist={trip.checklist} canEdit={canEdit} onDone={reload} />

@@ -37,12 +37,20 @@ router = APIRouter(prefix="/api/transport", tags=["transport"])
 READ_ROLES = (UserRole.COORDINATOR, UserRole.TRANSPORT, UserRole.TENANT_ADMIN, UserRole.MANAGER)
 
 
-def _out(leg: TransportLeg, show_cost: bool) -> dict:
+def _out(db: Session, leg: TransportLeg, show_cost: bool) -> dict:
+    vehicle = db.query(Vehicle).filter(Vehicle.id == leg.vehicle_id).first() if leg.vehicle_id else None
+    driver = db.query(Driver).filter(Driver.id == vehicle.driver_id).first() if vehicle and vehicle.driver_id else None
+    vendor = db.query(TransportVendor).filter(TransportVendor.id == leg.vendor_id).first() if leg.vendor_id else None
     out = {
         "id": str(leg.id), "leg_type": leg.leg_type.value, "scheduled_at": leg.scheduled_at.isoformat(),
         "level": leg.level.value, "source": leg.source.value,
         "vehicle_id": str(leg.vehicle_id) if leg.vehicle_id else None,
+        "vehicle_no": vehicle.vehicle_no if vehicle else None,
+        "vehicle_type": vehicle.vehicle_type if vehicle else None,
+        "driver_name": driver.name if driver else None,
+        "driver_mobile": driver.mobile if driver else None,
         "vendor_id": str(leg.vendor_id) if leg.vendor_id else None,
+        "vendor_name": vendor.name if vendor else None,
         "vendor_vehicle_type": leg.vendor_vehicle_type,
         "usage_type": leg.usage_type.value if leg.usage_type else None,
         "destination_notes": leg.destination_notes, "is_assigned": leg.is_assigned,
@@ -71,7 +79,7 @@ def list_legs(trip_id: uuid.UUID, db: Session = Depends(get_db), current_user: C
     q = db.query(TransportLeg).filter(TransportLeg.tenant_id == tenant_id)
     q = q.filter((TransportLeg.trip_id == trip.id) | (TransportLeg.group_id == trip.group_id if trip.group_id else False))
     show_cost = current_user.role in CAN_SEE_TRANSPORT_COST
-    return [_out(l, show_cost) for l in q.all()]
+    return [_out(db, l, show_cost) for l in q.all()]
 
 
 class LegIn(BaseModel):
@@ -135,7 +143,7 @@ def create_leg(payload: LegIn, db: Session = Depends(get_db), current_user: Curr
     if payload.source == TransportSource.INHOUSE and payload.override:
         record_event(db, tenant_id=tenant_id, user_id=current_user.id, username=current_user.username, role=current_user.role.value, trip_id=trip.id, action="LEG_VEHICLE_CONFLICT_OVERRIDE", description="Vehicle assigned despite a scheduling conflict", reason=payload.override_reason)
     notify_role(db, tenant_id, NotificationRole.TRANSPORT, f"{leg.leg_type.value} assigned: {trip.trip_no}", trip.id)
-    return _out(leg, show_cost)
+    return _out(db, leg, show_cost)
 
 
 @router.post("/legs/{leg_id}/complete")
@@ -155,7 +163,7 @@ def complete_leg(leg_id: uuid.UUID, db: Session = Depends(get_db), current_user:
     record_event(db, tenant_id=tenant_id, user_id=current_user.id, username=current_user.username, role=current_user.role.value, trip_id=trip.id if trip else None, action="LEG_COMPLETED", description=f"{leg.leg_type.value} completed")
     if leg.leg_type == TransportLegType.DEPARTURE_DROP and trip:
         notify_role(db, tenant_id, NotificationRole.COORDINATOR, f"Departure drop completed — {trip.trip_no} ready to close", trip.id)
-    return _out(leg, current_user.role in CAN_SEE_TRANSPORT_COST)
+    return _out(db, leg, current_user.role in CAN_SEE_TRANSPORT_COST)
 
 
 class LegCancelIn(BaseModel):
@@ -177,7 +185,7 @@ def cancel_leg(leg_id: uuid.UUID, payload: LegCancelIn, db: Session = Depends(ge
     db.commit()
     trip = leg.trip_id and db.query(Trip).filter(Trip.id == leg.trip_id).first() or db.query(Trip).filter(Trip.group_id == leg.group_id).first()
     record_event(db, tenant_id=tenant_id, user_id=current_user.id, username=current_user.username, role=current_user.role.value, trip_id=trip.id if trip else None, action="LEG_CANCELLED", description=f"{leg.leg_type.value} cancelled — charge LKR {payload.charge}", reason=payload.reason)
-    return _out(leg, current_user.role in CAN_SEE_TRANSPORT_COST)
+    return _out(db, leg, current_user.role in CAN_SEE_TRANSPORT_COST)
 
 
 class LegPayIn(BaseModel):
@@ -203,4 +211,4 @@ def pay_leg(leg_id: uuid.UUID, payload: LegPayIn, db: Session = Depends(get_db),
     if old.value != payload.status:
         trip = leg.trip_id and db.query(Trip).filter(Trip.id == leg.trip_id).first() or db.query(Trip).filter(Trip.group_id == leg.group_id).first()
         record_event(db, tenant_id=tenant_id, user_id=current_user.id, username=current_user.username, role=current_user.role.value, trip_id=trip.id if trip else None, action="PAYMENT_STATUS", description=f"{leg.leg_type.value} vendor payment changed", old_value=old.value, new_value=payload.status)
-    return _out(leg, True)
+    return _out(db, leg, True)

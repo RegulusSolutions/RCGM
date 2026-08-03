@@ -75,7 +75,7 @@ def _serialize(obj, fields: list[str]) -> dict:
 def list_catalog(
     catalog: str,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(*READ_ROLES, UserRole.MARKETING)),
+    current_user: CurrentUser = Depends(require_role(*READ_ROLES, UserRole.MARKETING, UserRole.RESERVATIONS, UserRole.TRANSPORT)),
     tenant_id: uuid.UUID = Depends(get_tenant_scope),
 ):
     cfg = CATALOGS.get(catalog)
@@ -83,9 +83,15 @@ def list_catalog(
         raise not_found("Unknown catalog.")
     # Marketing has no general master-data access (see docs/roles-and-permissions.md) — the sole
     # exception is "packages", needed to populate the package-code field on the guest arrival
-    # request wizard.
+    # request wizard. Reservations and Transport are likewise excluded from general master-data
+    # access, but each needs a narrow slice to populate its own booking/transport-leg form
+    # dropdowns.
     if current_user.role == UserRole.MARKETING and catalog != "packages":
         raise forbidden("Marketing may only view package codes.")
+    if current_user.role == UserRole.RESERVATIONS and catalog not in ("hotels", "airlines", "currencies"):
+        raise forbidden("Reservations may only view hotels, airlines and currencies.")
+    if current_user.role == UserRole.TRANSPORT and catalog not in ("vehicles", "drivers", "vendors"):
+        raise forbidden("Transport may only view vehicles, drivers and vendors.")
     rows = db.query(cfg["model"]).filter(cfg["model"].tenant_id == tenant_id).order_by(cfg["model"].created_at).all()
     return [_serialize(r, cfg["fields"]) for r in rows]
 

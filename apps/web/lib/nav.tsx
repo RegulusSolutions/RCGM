@@ -63,6 +63,7 @@ export const NAV: Record<UserRole, NavEntry[]> = {
     link("co_dash", "Control Desk", "/dashboard", LayoutDashboard),
     link("co_groups", "Trip Groups", "/groups", UsersRound),
     link("co_master", "Master Data (view)", "/master-data", Database),
+    link("co_links", "Guest Trip Links", "/guest-links", Link2),
     link("audit", "Audit Log", "/audit", ScrollText),
     link("co_tasks", "Open Tasks", "/tasks", Flag),
     link("board", "Arrivals Board", "/board", CalendarClock),

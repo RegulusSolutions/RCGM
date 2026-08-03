@@ -36,7 +36,11 @@ def _out(link: GuestShareLink, token: str | None = None) -> dict:
 
 
 @router.get("/trips/{trip_id}")
-def list_links(trip_id: uuid.UUID, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_role(UserRole.COORDINATOR, UserRole.TENANT_ADMIN)), tenant_id: uuid.UUID = Depends(get_tenant_scope)):
+def list_links(trip_id: uuid.UUID, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_role(UserRole.COORDINATOR, UserRole.TENANT_ADMIN, UserRole.MARKETING, UserRole.MANAGER)), tenant_id: uuid.UUID = Depends(get_tenant_scope)):
+    if current_user.role == UserRole.MARKETING:
+        trip = db.query(Trip).filter(Trip.id == trip_id, Trip.tenant_id == tenant_id).first()
+        if not trip or trip.agent_id != current_user.agent_id:
+            raise not_found("Trip not found.")
     rows = db.query(GuestShareLink).filter(GuestShareLink.trip_id == trip_id, GuestShareLink.tenant_id == tenant_id).order_by(GuestShareLink.created_at.desc()).all()
     return [_out(r) for r in rows]
 
